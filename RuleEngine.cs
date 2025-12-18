@@ -5,11 +5,23 @@ public static class RuleEngine<T>
 {
     public static Expression<Func<T, bool>> Build(RuleSet ruleSet)
     {
+        if (ruleSet == null)
+            throw new ArgumentNullException(nameof(ruleSet), "RuleSet cannot be null");
+
+        if (ruleSet.Conditions == null || ruleSet.Conditions.Count == 0)
+            throw new ArgumentException("RuleSet must contain at least one condition", nameof(ruleSet));
+
         ParameterExpression param = Expression.Parameter(typeof(T), "x");
-        Expression finalExpr = null;
+        Expression? finalExpr = null;
 
         foreach (var cond in ruleSet.Conditions)
         {
+            if (string.IsNullOrWhiteSpace(cond.Field))
+                throw new ArgumentException("Condition Field cannot be null or empty");
+
+            if (cond.Value == null)
+                throw new ArgumentException($"Condition Value cannot be null for field '{cond.Field}'");
+
             // Get nested property (Bio.Age)
             Expression member = GetNestedProperty(param, cond.Field);
 
@@ -23,7 +35,8 @@ public static class RuleEngine<T>
                 RuleOperator.LessThan => Expression.LessThan(member, constant),
                 RuleOperator.Contains => Expression.Call(
                     member,
-                    typeof(string).GetMethod("Contains", new[] { typeof(string) }),
+                    typeof(string).GetMethod("Contains", new[] { typeof(string) }) 
+                        ?? throw new InvalidOperationException("Contains method not found"),
                     constant),
                 _ => throw new NotSupportedException()
             };
@@ -34,6 +47,9 @@ public static class RuleEngine<T>
                     ? Expression.AndAlso(finalExpr, comparison)
                     : Expression.OrElse(finalExpr, comparison);
         }
+
+        if (finalExpr == null)
+            throw new InvalidOperationException("No conditions provided");
 
         return Expression.Lambda<Func<T, bool>>(finalExpr, param);
     }
@@ -68,13 +84,13 @@ public enum RuleConnector
 
 public class RuleCondition
 {
-    public string Field { get; set; }
+    public required string Field { get; set; }
     public RuleOperator Operator { get; set; }
-    public object Value { get; set; }
+    public required object Value { get; set; }
 }
 
 public class RuleSet
 {
     public RuleConnector Connector { get; set; }
-    public List<RuleCondition> Conditions { get; set; }
+    public required List<RuleCondition> Conditions { get; set; }
 }
